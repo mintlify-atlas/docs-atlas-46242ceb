@@ -1,0 +1,68 @@
+{
+  "projectType": "ai-ml",
+  "projectName": "DINOV2 Intelligent Parts Catalog",
+  "projectDescription": "A FastAPI-powered intelligent parts catalog system that uses Meta's DINOv2 vision model to enable visual similarity search for industrial machine parts across multiple plant databases.",
+  "theme": "sequoia",
+  "primaryColor": "#2563EB",
+  "lightColor": "#DBEAFE",
+  "darkColor": "#1E3A8A",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": ["introduction", "quickstart", "architecture"]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": ["concepts/visual-search", "concepts/embeddings", "concepts/multi-plant"]
+          },
+          {
+            "group": "Guides",
+            "pages": ["guides/setup", "guides/adding-parts", "guides/searching-parts", "guides/managing-machines"]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Parts (Piezas)",
+            "pages": ["api/piezas/add", "api/piezas/search-global", "api/piezas/search-machine", "api/piezas/list", "api/piezas/get", "api/piezas/update", "api/piezas/delete"]
+          },
+          {
+            "group": "Machines (Maquinas)",
+            "pages": ["api/maquinas/add", "api/maquinas/list", "api/maquinas/update", "api/maquinas/delete"]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Visual similarity search using Meta's DINOv2 ViT-G/14 model",
+    "Multi-scale image embedding extraction (448px and 560px scales)",
+    "Region-of-interest (ROI) based search for precise part identification",
+    "Multi-plant database architecture with per-request routing via x-planta header",
+    "pgvector-powered L2 distance similarity search across up to 3 images per part",
+    "Hybrid embedding combining global and center-crop views for improved accuracy",
+    "Cloudinary integration for optimized image storage and delivery",
+    "Rate limiting with slowapi to protect AI inference endpoints",
+    "Confidence scoring with distance-based quality levels (Alta/Media/Baja)",
+    "Audit logging of search queries with top result tracking"
+  ],
+  "publicApiSurface": [
+    "POST /piezas/agregar — Add a new part with up to 3 reference images",
+    "POST /piezas/buscar/global — Visual search across all parts in the plant",
+    "POST /piezas/buscar/maquina — Visual search filtered by machine",
+    "GET /piezas/maquina/{maquina_id} — List all parts for a machine",
+    "GET /piezas/pieza/{clave} — Get a single part by key",
+    "PUT /piezas/piezas/{clave} — Update a part's metadata and images",
+    "DELETE /piezas/eliminar/{clave} — Delete a part and its Cloudinary images",
+    "POST /maquinas/ — Add a new machine",
+    "GET /maquinas/ — List all machines",
+    "PUT /maquinas/{maquina_id} — Update a machine",
+    "DELETE /maquinas/{maquina_id} — Delete a machine"
+  ]
+}
