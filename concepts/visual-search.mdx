@@ -1,0 +1,121 @@
+---
+title: "Visual Search"
+description: "How the system matches a query photo to catalog parts using DINOv2 embeddings and L2 nearest-neighbor search."
+---
+
+Visual search lets you identify an industrial part by uploading a photo. The system converts the image into a 1536-dimensional embedding vector and finds the closest matching parts in the catalog using L2 distance.
+
+## How it works
+
+<Steps>
+  <Step title="Upload a photo">
+    Submit a photo of the part via a `multipart/form-data` POST request. Supported formats are JPEG, PNG, WebP, HEIC, and HEIF. Maximum file size is 5 MB.
+  </Step>
+  <Step title="Extract the embedding">
+    The image is passed through DINOv2 ViT-G/14 to produce a 1536-dimensional L2-normalized vector that encodes the part's visual features. See [Embeddings](/concepts/embeddings) for the full extraction pipeline.
+  </Step>
+  <Step title="Query the vector index">
+    The embedding is compared against all stored part embeddings using pgvector's L2 distance operator. Each part can have up to three reference images; the system selects the minimum distance across all three using `func.least()`.
+  </Step>
+  <Step title="Rank and return results">
+    Results are sorted by ascending distance and returned with a confidence level, distance score, and part metadata.
+  </Step>
+</Steps>
+
+## Search modes
+
+<CardGroup cols={2}>
+  <Card title="Global search" icon="magnifying-glass">
+    Searches across every part in the plant's catalog. Use `/buscar/global` when you don't know which machine a part belongs to.
+  </Card>
+  <Card title="Machine-filtered search" icon="filter">
+    Restricts candidates to parts associated with a specific machine. Use `/buscar/maquina` with the `maquina_id` form field to narrow results and reduce false positives.
+  </Card>
+</CardGroup>
+
+Both endpoints apply a rate limit of **30 requests per minute** per IP address.
+
+## Confidence levels
+
+Each result includes a `nivel` field that classifies the match quality based on the raw L2 distance:
+
+| Level | Condition | Meaning |
+|-------|-----------|----------|
+| `Alta` | `dist < 0.35` | High confidence — strong visual match |
+| `Media` | `0.35 ≤ dist < 0.55` | Medium confidence — likely match, verify visually |
+| `Baja` | `dist ≥ 0.55` | Low confidence — weak match, use with caution |
+
+<Note>
+  These thresholds are fixed in `format_piezas()` in `routes/piezas.py`. They were tuned for L2-normalized 1536-dim DINOv2 vectors and assume the catalog images were indexed under the same pipeline.
+</Note>
+
+## ROI (region of interest) search
+
+When a part occupies only a portion of the photo — for example, a component photographed alongside other parts — you can instruct the system to focus on a specific region.
+
+Pass four additional form fields alongside the image:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `x` | float 0.0–1.0 | Left edge of the region as a fraction of image width |
+| `y` | float 0.0–1.0 | Top edge of the region as a fraction of image height |
+| `w` | float 0.0–1.0 | Width of the region as a fraction of image width |
+| `h` | float 0.0–1.0 | Height of the region as a fraction of image height |
+
+All four values must be present and within range for ROI to activate. The minimum usable crop is 10 × 10 pixels after coordinate conversion.
+
+When a valid ROI is provided, the final embedding is a weighted blend of the cropped region and the full image:
+
+```
+emb = (0.6 × emb_roi) + (0.4 × emb_global)  →  re-normalized
+```
+
+See [Embeddings — ROI weighting](/concepts/embeddings#roi-weighting) for details.
+
+## Result ranking
+
+The search query selects the minimum L2 distance across all three stored embeddings per part:
+
+```python
+dist_attr = func.least(
+    func.coalesce(models.Pieza.embedding.l2_distance(embedding), 999),
+    func.coalesce(models.Pieza.embedding_img2.l2_distance(embedding), 999),
+    func.coalesce(models.Pieza.embedding_img3.l2_distance(embedding), 999)
+).label("dist")
+```
+
+Null embeddings (parts with fewer than three images) are coalesced to `999`, so they are never preferred over a real match. Results are ordered by `dist` ascending.
+
+## Example result
+
+Each element in the `data` array follows the structure produced by `format_piezas()`:
+
+```json
+{
+  "ok": true,
+  "data": [
+    {
+      "clave": "PIE-0042",
+      "nombre": "Rodamiento radial 6205",
+      "maquina": "Torno CNC Alpha",
+      "imagen": "https://res.cloudinary.com/example/image/upload/piezas/PIE-0042_imagen",
+      "distancia": 0.2817,
+      "nivel": "Alta",
+      "detalles": {
+        "ubicacion": "Eje principal",
+        "uso_en": "Transmisión",
+        "proveedores": "SKF, NSK",
+        "tiene_foto": true,
+        "imagenes_extra": [
+          "https://res.cloudinary.com/example/image/upload/piezas/PIE-0042_imagen_2",
+          null
+        ]
+      }
+    }
+  ]
+}
+```
+
+## Search logs
+
+After every successful search, the system records the top-1 result, its distance, and the query image path to the `logs_busqueda` table in the requesting plant's database. This happens in a background task and does not block the response.

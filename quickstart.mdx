@@ -1,80 +1,189 @@
 ---
 title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+description: "Install the server, configure environment variables, and run your first visual parts search."
 ---
 
-## Get started in three steps
+<Steps>
+  <Step title="Install dependencies">
+    Clone the repository and install the Python dependencies. A virtual environment is recommended.
 
-Get your documentation site running locally and make your first customization.
+    ```bash
+    python -m venv .venv
+    source .venv/bin/activate   # Windows: .venv\Scripts\activate
+    pip install -r requirements.txt
+    ```
 
-### Step 1: Set up your local environment
+    The key packages installed are:
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+    | Package | Purpose |
+    |---|---|
+    | `fastapi`, `uvicorn[standard]` | HTTP server |
+    | `torch`, `torchvision` | DINOv2 inference |
+    | `sqlalchemy`, `psycopg2-binary`, `pgvector` | Database ORM and vector search |
+    | `cloudinary` | Image storage for parts |
+    | `pillow`, `pillow-heif` | Image decoding (JPEG, PNG, WebP, HEIC) |
+    | `slowapi` | Rate limiting |
+  </Step>
 
-### Step 2: Deploy your changes
+  <Step title="Configure environment variables">
+    Create a `.env` file in the project root with the following variables. The server will not start if the database URLs are missing.
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+    ```bash .env
+    # PostgreSQL connection strings (must have the pgvector extension enabled)
+    DATABASE_URL_PLANTA1=postgresql://user:password@localhost:5432/planta1_db
+    DATABASE_URL_PLANTA2=postgresql://user:password@localhost:5432/planta2_db
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+    # Cloudinary credentials (used to store part images)
+    CLOUDINARY_CLOUD_NAME=your_cloud_name
+    CLOUDINARY_API_KEY=your_api_key
+    CLOUDINARY_API_SECRET=your_api_secret
+    ```
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+    <Info>
+    Each database must have the `pgvector` extension installed. Run `CREATE EXTENSION IF NOT EXISTS vector;` on each database before starting the server.
+    </Info>
+  </Step>
 
-### Step 3: Go live
+  <Step title="Start the server">
+    <CodeGroup>
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+    ```bash Development
+    uvicorn app:app --reload --host 0.0.0.0 --port 8000
+    ```
 
-## Next steps
+    ```bash Production
+    uvicorn app:app --host 0.0.0.0 --port 8000 --workers 2
+    ```
 
-Now that you have your docs running, explore these key features:
+    </CodeGroup>
 
-<CardGroup cols={2}>
+    The API will be available at `http://localhost:8000`. Interactive documentation is served at `http://localhost:8000/docs`.
 
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
+    <Note>
+    On first startup the DINOv2 ViT-G/14 model is downloaded from `torch.hub` (approximately 3.5 GB) and a warmup inference is run. This can take several minutes the first time.
+    </Note>
+  </Step>
 
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
+  <Step title="Create a machine">
+    Before adding parts you must create at least one machine. All parts belong to a machine.
 
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
+    ```bash
+    curl -X POST http://localhost:8000/maquinas/ \
+      -H "x-planta: planta 1" \
+      -F "clave=CNC-001" \
+      -F "nombre=Torno CNC Mazak" \
+      -F "descripcion=Torno de control numérico línea A" \
+      -F "ubicacion=Nave 3, Sector B" \
+      -F "uso_en=Manufactura"
+    ```
 
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
+    Successful response:
 
-</CardGroup>
+    ```json
+    {
+      "ok": true,
+      "data": {
+        "clave": "CNC-001",
+        "nombre": "Torno CNC Mazak",
+        "descripcion": "Torno de control numérico línea A",
+        "ubicacion": "Nave 3, Sector B",
+        "uso_en": "Manufactura",
+        "proveedores": null,
+        "tiene_foto": false,
+        "imagen": null
+      }
+    }
+    ```
+  </Step>
 
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>
+  <Step title="Add a part with an image">
+    Add a part by posting its metadata and at least one image. The server extracts a 1536-dimensional embedding from the image and stores both the image (via Cloudinary) and the embedding (via pgvector).
+
+    ```bash
+    curl -X POST http://localhost:8000/piezas/agregar \
+      -H "x-planta: planta 1" \
+      -F "clave=PIEZA-BUJE-42" \
+      -F "nombre=Buje de bronce 42mm" \
+      -F "maquina_id=CNC-001" \
+      -F "ubicacion=Almacén A-04" \
+      -F "uso_en=Eje principal" \
+      -F "proveedores=Metalúrgica Norte" \
+      -F "imagen=@/path/to/buje.jpg"
+    ```
+
+    Successful response:
+
+    ```json
+    {
+      "ok": true,
+      "clave": "PIEZA-BUJE-42",
+      "msg": "Pieza guardada exitosamente"
+    }
+    ```
+
+    <Tip>
+    You can supply up to three images per part (`imagen`, `imagen_2`, `imagen_3`). Each gets its own embedding. During search, the system uses `func.least()` across all three embeddings, so parts with multiple angles match more reliably.
+    </Tip>
+  </Step>
+
+  <Step title="Run a visual search">
+    Upload a query photo to find the most visually similar parts across the entire plant catalog.
+
+    ```bash
+    curl -X POST http://localhost:8000/piezas/buscar/global \
+      -H "x-planta: planta 1" \
+      -F "imagen=@/path/to/query.jpg" \
+      -F "limite=5"
+    ```
+
+    Response:
+
+    ```json
+    {
+      "ok": true,
+      "data": [
+        {
+          "clave": "PIEZA-BUJE-42",
+          "nombre": "Buje de bronce 42mm",
+          "maquina": "Torno CNC Mazak",
+          "imagen": "https://res.cloudinary.com/your_cloud/image/upload/piezas/PIEZA-BUJE-42_imagen_...",
+          "distancia": 0.1823,
+          "nivel": "Alta",
+          "detalles": {
+            "ubicacion": "Almacén A-04",
+            "uso_en": "Eje principal",
+            "proveedores": "Metalúrgica Norte",
+            "tiene_foto": true,
+            "imagenes_extra": [null, null]
+          }
+        }
+      ]
+    }
+    ```
+
+    The `nivel` field indicates match confidence based on L2 distance:
+
+    | `nivel` | Distance range | Meaning |
+    |---|---|---|
+    | `Alta` | < 0.35 | High confidence match |
+    | `Media` | 0.35 – 0.55 | Possible match, verify visually |
+    | `Baja` | ≥ 0.55 | Low confidence |
+  </Step>
+
+  <Step title="Search with ROI (optional)">
+    If only part of the image contains the part you want to match, pass ROI (Region of Interest) coordinates as fractional values (0.0–1.0) relative to image dimensions.
+
+    ```bash
+    curl -X POST http://localhost:8000/piezas/buscar/global \
+      -H "x-planta: planta 1" \
+      -F "imagen=@/path/to/query.jpg" \
+      -F "limite=5" \
+      -F "x=0.25" \
+      -F "y=0.10" \
+      -F "w=0.50" \
+      -F "h=0.60"
+    ```
+
+    When ROI coordinates are provided, the server computes a hybrid embedding: **60% ROI crop + 40% full image**, then re-normalizes. This improves precision when the target part occupies a small area of the frame.
+  </Step>
+</Steps>

@@ -1,97 +1,81 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: "DINOV2 Intelligent Parts Catalog"
+description: "Visual similarity search for industrial machine parts powered by Meta's DINOv2 ViT-G/14 model"
 ---
 
-## Setting up
-
-Get your documentation site up and running in minutes.
-
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
-
-## Make it yours
-
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Deploy the API and run your first visual search in minutes
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="Architecture" icon="diagram-project" href="/architecture">
+    Understand how DINOv2 embeddings power the catalog
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="API Reference" icon="code" href="/api/piezas/add">
+    Full REST API documentation for parts and machines
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  <Card title="Visual Search Guide" icon="magnifying-glass" href="/guides/searching-parts">
+    Learn how to search parts by image with ROI support
   </Card>
-</Columns>
+</CardGroup>
 
-## Create beautiful pages
+## What is DINOV2?
 
-Everything you need to create world-class documentation.
+DINOV2 is an intelligent parts catalog API that uses **Meta's DINOv2 ViT-G/14** vision transformer to identify and search industrial machine parts by photo. Instead of typing part numbers or descriptions, technicians and maintenance teams photograph a component and instantly find its catalog entry, location, supplier, and related machine.
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
+The system stores up to three reference images per part and generates 1536-dimensional vector embeddings. When a search image is uploaded, the API computes its embedding and performs an L2 nearest-neighbor search via **pgvector**, returning ranked results with confidence scores.
 
-## Need inspiration?
+## Key features
 
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+<CardGroup cols={2}>
+  <Card title="Visual similarity search" icon="eye">
+    Upload any photo of a part — the AI finds the closest match across the entire catalog, even from different angles or lighting conditions.
+  </Card>
+  <Card title="Region of interest (ROI)" icon="crop">
+    Crop to a specific area of the image at search time for precise identification of components within a larger assembly.
+  </Card>
+  <Card title="Multi-plant support" icon="building-columns">
+    Route requests to isolated PostgreSQL databases per plant using the `x-planta` header — no data leaks between facilities.
+  </Card>
+  <Card title="Hybrid embeddings" icon="layer-group">
+    Combines global image context with center-cropped detail views at two scales (448px and 560px) for higher accuracy.
+  </Card>
+  <Card title="Confidence scoring" icon="chart-bar">
+    Results are ranked by L2 distance and labeled Alta / Media / Baja so operators know how reliable each match is.
+  </Card>
+  <Card title="Cloudinary storage" icon="cloud">
+    Optimized JPEG images are automatically uploaded to Cloudinary, keeping the database lean and delivery fast.
+  </Card>
+</CardGroup>
+
+## How it works
+
+<Steps>
+  <Step title="Register machines">
+    Create machine records (Maquinas) that serve as the parent catalog for parts. Each machine has a unique key, name, description, and optional photo.
+  </Step>
+  <Step title="Add parts with images">
+    Upload parts (Piezas) with up to three reference photos. The DINOv2 model extracts a 1536-dim embedding from each image and stores it in PostgreSQL via pgvector.
+  </Step>
+  <Step title="Search by photo">
+    POST a query image to `/piezas/buscar/global` or `/piezas/buscar/maquina`. The API runs inference on the image and returns the top-N matches ranked by visual similarity.
+  </Step>
+  <Step title="Review results">
+    Each result includes the part key, name, machine, supplier, location, confidence level, and image URL — everything needed to act on the match immediately.
+  </Step>
+</Steps>
+
+## Technology stack
+
+| Layer | Technology |
+|---|---|
+| API framework | FastAPI + Uvicorn |
+| AI model | DINOv2 ViT-G/14 (`dinov2_vitg14`) via `torch.hub` |
+| Vector store | PostgreSQL + pgvector (1536-dim L2 search) |
+| Image storage | Cloudinary |
+| ORM | SQLAlchemy 2.0 with mapped columns |
+| Rate limiting | slowapi |
+| Image processing | Pillow, torchvision, pillow-heif |
+
+<Note>
+  The DINOv2 ViT-G/14 model is loaded lazily on first use and warmed up at server startup. On CPU-only deployments, initial load time can take 30–60 seconds. GPU acceleration is automatically detected and used when available.
+</Note>

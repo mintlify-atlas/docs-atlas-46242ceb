@@ -1,0 +1,116 @@
+---
+title: "Multi-Plant Architecture"
+description: "How the system routes every request to an isolated per-plant PostgreSQL database using the x-planta header."
+---
+
+The DINOV2 Intelligent Parts Catalog is designed to serve multiple manufacturing plants from a single API deployment. Each plant has its own dedicated PostgreSQL database, ensuring complete data isolation: parts, machines, and search logs for one plant are never visible to another.
+
+## Database layout
+
+Two separate PostgreSQL databases are configured at startup, one per plant:
+
+```python
+DB_URLS = {
+    "planta 1": os.getenv("DATABASE_URL_PLANTA1"),
+    "planta 2": os.getenv("DATABASE_URL_PLANTA2")
+}
+```
+
+Each database runs the same schema (machines, parts, search logs, change history) but holds entirely independent data.
+
+### Connection pool settings
+
+Each database engine is configured with the same pool parameters:
+
+| Parameter | Value | Effect |
+|-----------|-------|--------|
+| `pool_size` | `10` | Persistent connections held open per engine |
+| `max_overflow` | `20` | Additional connections allowed under peak load |
+| `pool_pre_ping` | `True` | Tests connections before use to detect stale sockets |
+
+## The `x-planta` header
+
+Every request to the API **must** include the `x-planta` header. This header tells the dependency injection layer which database to connect to for that request.
+
+```bash
+curl -X POST https://api.example.com/buscar/global \
+  -H "x-planta: planta1" \
+  -F "imagen=@part-photo.jpg" \
+  -F "limite=5"
+```
+
+<Warning>
+  Requests without the `x-planta` header will be rejected with HTTP `400 Bad Request`. There is no default plant.
+</Warning>
+
+## Alias mapping
+
+The header value is normalized before lookup, so multiple aliases resolve to the same database:
+
+| Accepted values | Resolves to |
+|-----------------|-------------|
+| `planta1`, `p1`, `norte`, `1` | `planta 1` |
+| `planta2`, `p2`, `sur`, `2` | `planta 2` |
+
+Normalization is case-insensitive and strips surrounding whitespace. Any value not in the table above returns HTTP `400`.
+
+## Session routing
+
+The routing logic lives in two files:
+
+**`db.py` — factory lookup**
+
+```python
+def get_session_factory(planta_nombre: str):
+    key = planta_nombre.strip().lower()
+    if key in ("planta1", "p1", "norte", "1"): key = "planta 1"
+    if key in ("planta2", "p2", "sur", "2"):  key = "planta 2"
+
+    factory = SessionFactories.get(key)
+    if not factory:
+        raise ValueError(f"No existe configuración de base de datos para: {planta_nombre}")
+    return factory
+```
+
+**`deps.py` — FastAPI dependency**
+
+```python
+def get_db_from_header(x_planta: str = Header(...)) -> Generator[Session, None, None]:
+    session_factory = get_session_factory(x_planta)
+    db = session_factory()
+    try:
+        yield db
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()  # returns connection to pool
+```
+
+Endpoints declare `db: Session = Depends(get_db_from_header)` and receive a ready-to-use session scoped to the correct plant. The session is closed — and the connection returned to the pool — automatically after the response is sent.
+
+## Data isolation
+
+<CardGroup cols={2}>
+  <Card title="Parts and machines" icon="database">
+    The `piezas` and `maquinas` tables are completely separate per plant. A part cataloged in Plant 1 is invisible to Plant 2 searches.
+  </Card>
+  <Card title="Search logs" icon="clock-rotate-left">
+    `logs_busqueda` entries are written to the database of the plant that made the request. Audit history is scoped per plant.
+  </Card>
+</CardGroup>
+
+<Info>
+  Search logs are written asynchronously in a background task after the response is returned. The background task opens its own short-lived session using `get_session_factory(planta)` directly, targeting the same plant that initiated the search.
+</Info>
+
+## Environment variables
+
+Provide one connection URL per plant as environment variables:
+
+```bash
+DATABASE_URL_PLANTA1=postgresql+psycopg2://user:pass@host1:5432/planta1_db
+DATABASE_URL_PLANTA2=postgresql+psycopg2://user:pass@host2:5432/planta2_db
+```
+
+Both variables must be set before the application starts. If either URL is missing or invalid, the corresponding engine will fail to initialize and all requests to that plant will return `500`.

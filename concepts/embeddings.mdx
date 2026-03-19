@@ -1,0 +1,131 @@
+---
+title: "Embeddings"
+description: "How DINOv2 ViT-G/14 converts part images into 1536-dimensional vectors for similarity search."
+---
+
+Every part in the catalog is represented by one or more 1536-dimensional floating-point vectors called embeddings. These vectors encode visual features — shape, texture, color distribution — in a form that allows fast nearest-neighbor search via pgvector.
+
+## Model: DINOv2 ViT-G/14
+
+[DINOv2](https://github.com/facebookresearch/dinov2) is Meta's self-supervised vision transformer. It is trained without labels using a self-distillation objective, producing image representations that generalize well to downstream tasks including visual similarity search.
+
+The system uses the **ViT-G/14** variant (Giant, 14 × 14 patch size), loaded at startup via torch.hub:
+
+```python
+model = torch.hub.load("facebookresearch/dinov2", "dinov2_vitg14")
+model.eval()
+```
+
+The model runs on GPU (`float16`) when available, and on CPU (`float32`) otherwise.
+
+### Model warmup
+
+At application startup, a single dummy inference is executed to initialize CUDA kernels and CPU buffers before the first real request arrives:
+
+```python
+dummy = torch.randn(1, 3, 448, 448).to(device).to(dtype)
+with torch.no_grad():
+    model.forward_features(dummy)
+```
+
+## Embedding dimension
+
+```
+EMBEDDING_DIM = 1536
+```
+
+All three per-part embedding columns (`embedding`, `embedding_img2`, `embedding_img3`) are declared as `Vector(1536)` in PostgreSQL via pgvector.
+
+## Image preprocessing
+
+Before inference, every image goes through the following steps:
+
+<Steps>
+  <Step title="EXIF correction">
+    `ImageOps.exif_transpose` rotates the image according to EXIF orientation metadata, ensuring consistent orientation regardless of how the photo was taken.
+  </Step>
+  <Step title="RGB conversion">
+    The image is converted to RGB if it is in any other mode (e.g., RGBA, L, CMYK).
+  </Step>
+  <Step title="View generation">
+    Two views are produced from the image:
+    - **Global view** — the full image.
+    - **Center-crop view** — a 75% central crop (`ratio=0.75`), extracted only when the shorter dimension exceeds 100 pixels.
+  </Step>
+  <Step title="Multi-scale transform">
+    Each view is resized and normalized at two scales. The transform pipeline for each scale is:
+
+    ```python
+    T.Compose([
+        T.Resize((size, size), interpolation=T.InterpolationMode.BICUBIC),
+        T.ToTensor(),
+        T.Normalize(
+            mean=[0.485, 0.456, 0.406],
+            std=[0.229, 0.224, 0.225]
+        ),
+    ])
+    ```
+
+    The two scales are `SCALES = [448, 560]`.
+  </Step>
+</Steps>
+
+## Feature extraction
+
+For each scale, both views are stacked into a batch and passed through `model.forward_features()`:
+
+```python
+out = model.forward_features(batch)
+cls_token     = out["x_norm_clstoken"]          # (N, 1536)
+patch_tokens  = out["x_norm_patchtokens"].mean(dim=1)  # (N, 1536)
+combined = (cls_token + patch_tokens) / 2
+```
+
+The CLS token captures global image semantics; the mean of patch tokens captures local spatial detail. Their average balances both.
+
+## Aggregation and normalization
+
+After processing all scale/view combinations, the partial embeddings are averaged into a single vector and L2-normalized:
+
+```python
+all_embs = torch.cat(embeddings_parciales, dim=0)  # all views × scales
+final_emb = all_embs.mean(dim=0)
+final_emb = final_emb / final_emb.norm(p=2)
+```
+
+L2 normalization maps all vectors onto the unit hypersphere, which makes L2 distance equivalent to cosine distance and keeps distance scores in a predictable range.
+
+## ROI weighting
+
+When a region of interest is provided at search time, two separate embeddings are extracted — one from the cropped region and one from the full image — then blended:
+
+```python
+emb = (0.6 * emb_roi) + (0.4 * emb_global)
+norm = np.linalg.norm(emb)
+if norm > 0:
+    emb = emb / norm
+```
+
+The 60/40 split gives priority to the region of interest while retaining global context. Re-normalization after the weighted sum is required because the sum of two unit vectors is not itself a unit vector.
+
+<Warning>
+  Skipping re-normalization after ROI blending would cause distance comparisons to be inconsistent with catalog embeddings, producing incorrect confidence levels.
+</Warning>
+
+## Supported image formats
+
+| Format | MIME type |
+|--------|-----------|
+| JPEG | `image/jpeg` |
+| PNG | `image/png` |
+| WebP | `image/webp` |
+| HEIC | `image/heic` |
+| HEIF | `image/heif` |
+
+HEIC/HEIF support is provided by `pillow-heif`, registered via `register_heif_opener()` at module load time.
+
+**Maximum image size:** 5 MB (`MAX_IMAGE_MB = 5`)
+
+## Multi-image parts
+
+Each part can store up to three reference images and three corresponding embeddings (`embedding`, `embedding_img2`, `embedding_img3`). During search, the system computes the L2 distance to all three and selects the minimum, so a part is ranked by its closest matching photo regardless of which slot it is stored in.

@@ -1,0 +1,80 @@
+---
+title: "List Machines"
+description: "Retrieve all machines (máquinas) registered in the catalog for a given plant."
+---
+
+## `GET /maquinas/`
+
+Returns the full list of machines for the plant identified by the `x-planta` header. Results are ordered alphabetically by `clave`. Each item in the response includes a resolved `imagen` URL path for direct use in the frontend.
+
+### Headers
+
+<ParamField header="x-planta" type="string" required>
+  Plant identifier used to route the request to the correct database. Accepted values: `Planta 1`, `Planta 2` and their aliases `planta1`, `p1`, `norte`, `planta2`, `p2`, `sur`.
+</ParamField>
+
+### Response
+
+<ResponseField name="ok" type="boolean">
+  `true` on success.
+</ResponseField>
+
+<ResponseField name="data" type="array">
+  List of machine objects ordered by `clave` (ascending, alphabetical).
+  <Expandable title="properties">
+    <ResponseField name="clave" type="string">Unique machine key (primary key).</ResponseField>
+    <ResponseField name="nombre" type="string">Machine display name.</ResponseField>
+    <ResponseField name="descripcion" type="string | null">Free-text description.</ResponseField>
+    <ResponseField name="ubicacion" type="string | null">Physical location within the plant.</ResponseField>
+    <ResponseField name="uso_en" type="string | null">Area or process where the machine is used.</ResponseField>
+    <ResponseField name="proveedores" type="string | null">Supplier information.</ResponseField>
+    <ResponseField name="tiene_foto" type="boolean">Whether the machine has an associated image.</ResponseField>
+    <ResponseField name="imagen" type="string | null">Absolute static path to the image, e.g. `/static/maquinas/TORNO-01.jpg`, or `null` if no image exists.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+<Note>
+  The `imagen` field is returned as `/static/{path}` (a server-relative URL) so the frontend can reference it directly. The raw file path stored in the database is prefixed with `/static/` before being returned.
+</Note>
+
+### Example
+
+```bash
+curl https://api.example.com/maquinas/ \
+  -H "x-planta: Planta 2"
+```
+
+```json
+{
+  "ok": true,
+  "data": [
+    {
+      "clave": "FRESA-02",
+      "nombre": "Fresadora Vertical",
+      "descripcion": "Fresadora de husillo vertical para desbaste",
+      "ubicacion": "Nave B, Línea 1",
+      "uso_en": "Fresado",
+      "proveedores": "Haas Automation",
+      "tiene_foto": true,
+      "imagen": "/static/maquinas/FRESA-02.jpg"
+    },
+    {
+      "clave": "TORNO-01",
+      "nombre": "Torno CNC Principal",
+      "descripcion": null,
+      "ubicacion": "Nave A, Línea 3",
+      "uso_en": "Mecanizado",
+      "proveedores": null,
+      "tiene_foto": false,
+      "imagen": null
+    }
+  ]
+}
+```
+
+### Error codes
+
+| Code | Reason |
+|------|--------|
+| `400` | Missing or invalid `x-planta` header (handled by `deps.py`). |
+| `500` | Unexpected server error while querying the database. |

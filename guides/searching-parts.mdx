@@ -1,0 +1,147 @@
+---
+title: "Searching for Parts"
+description: "Upload a photo to find matching parts using DINOv2 visual similarity search."
+---
+
+Visual search works by uploading a photo of a part. The API runs the image through DINOv2 ViT-G/14 to produce a 1536-dim embedding, then queries the plant database for the nearest vectors using L2 distance across all stored images (up to 3 per part).
+
+All search endpoints require the `x-planta` header and are rate-limited to **30 requests per minute** per IP. Inference has a **90-second timeout**.
+
+---
+
+<Steps>
+  <Step title="Global search across all parts">
+    `POST /piezas/buscar/global` searches every part in the selected plant, regardless of which machine it belongs to.
+
+    <CodeGroup>
+      ```bash Basic
+      curl -X POST http://localhost:8000/piezas/buscar/global \
+        -H "x-planta: planta 1" \
+        -F "imagen=@/path/to/query.jpg" \
+        -F "limite=5"
+      ```
+
+      ```bash With ROI
+      curl -X POST http://localhost:8000/piezas/buscar/global \
+        -H "x-planta: planta 1" \
+        -F "imagen=@/path/to/query.jpg" \
+        -F "limite=5" \
+        -F "x=0.2" \
+        -F "y=0.1" \
+        -F "w=0.6" \
+        -F "h=0.8"
+      ```
+    </CodeGroup>
+  </Step>
+
+  <Step title="Machine-scoped search">
+    `POST /piezas/buscar/maquina` restricts results to parts belonging to a specific machine. This is the recommended approach when you know which machine the part came from.
+
+    <CodeGroup>
+      ```bash Basic
+      curl -X POST http://localhost:8000/piezas/buscar/maquina \
+        -H "x-planta: planta 1" \
+        -F "maquina_id=TORNO-001" \
+        -F "imagen=@/path/to/query.jpg" \
+        -F "limite=5"
+      ```
+
+      ```bash With ROI
+      curl -X POST http://localhost:8000/piezas/buscar/maquina \
+        -H "x-planta: planta 1" \
+        -F "maquina_id=TORNO-001" \
+        -F "imagen=@/path/to/query.jpg" \
+        -F "limite=5" \
+        -F "x=0.1" \
+        -F "y=0.0" \
+        -F "w=0.8" \
+        -F "h=1.0"
+      ```
+    </CodeGroup>
+  </Step>
+
+  <Step title="Using Region of Interest (ROI)">
+    If your photo contains multiple objects or background clutter, use ROI parameters to focus the embedding on a specific area. All values are **fractions of the image dimensions** (0.0–1.0).
+
+    | Parameter | Description | Example |
+    |---|---|---|
+    | `x` | Left edge of the crop as fraction of width | `0.2` = 20% from left |
+    | `y` | Top edge of the crop as fraction of height | `0.1` = 10% from top |
+    | `w` | Width of the crop as fraction of total width | `0.6` = 60% of width |
+    | `h` | Height of the crop as fraction of total height | `0.8` = 80% of height |
+
+    When a valid ROI is provided, the final embedding is a weighted blend: **60% ROI** + **40% global**, then re-normalized.
+  </Step>
+
+  <Step title="Interpret the response">
+    Both search endpoints return the same response structure:
+
+    ```json
+    {
+      "ok": true,
+      "data": [
+        {
+          "clave": "RODAMIENTO-6205",
+          "nombre": "Rodamiento de Bolas 6205",
+          "maquina": "Torno CNC Principal",
+          "imagen": "https://res.cloudinary.com/yourcloud/image/upload/piezas/RODAMIENTO-6205_imagen_...",
+          "distancia": 0.2841,
+          "nivel": "Alta",
+          "detalles": {
+            "ubicacion": "Eje principal",
+            "uso_en": "Soporte de carga radial",
+            "proveedores": "SKF, NSK",
+            "tiene_foto": true,
+            "imagenes_extra": [
+              "https://res.cloudinary.com/yourcloud/image/upload/piezas/RODAMIENTO-6205_imagen_2_...",
+              null
+            ]
+          }
+        }
+      ]
+    }
+    ```
+
+    **Confidence levels** are derived from the L2 distance:
+
+    | `nivel` | Distance range | Meaning |
+    |---|---|---|
+    | `Alta` | < 0.35 | High confidence match |
+    | `Media` | 0.35 – 0.55 | Moderate confidence |
+    | `Baja` | > 0.55 | Low confidence — verify manually |
+
+    <Tip>
+      Results are always sorted by ascending distance (best match first). The `distancia` field is rounded to 4 decimal places.
+    </Tip>
+  </Step>
+</Steps>
+
+---
+
+## Search parameters
+
+| Parameter | Type | Default | Constraints | Description |
+|---|---|---|---|---|
+| `imagen` | file | — | Required, max 5 MB | Query image |
+| `limite` | int | `5` | Min `1`, max `20` | Number of results to return |
+| `maquina_id` | string | — | Required for `/buscar/maquina` | Filter to this machine's parts |
+| `x`, `y`, `w`, `h` | float | `null` | 0.0–1.0 | ROI coordinates (all four required to activate) |
+
+---
+
+## When no results are found
+
+If the database has no parts or the query image is too dissimilar to anything indexed, the API returns an empty `data` array:
+
+```json
+{
+  "ok": true,
+  "data": []
+}
+```
+
+This is not an error — it means no candidates were found within the requested `limite`. Consider:
+
+- Increasing `limite` to see lower-confidence matches.
+- Using a cleaner photo with better lighting and focus.
+- Checking that parts have been added to the correct plant (`x-planta`).

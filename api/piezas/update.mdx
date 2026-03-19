@@ -1,0 +1,109 @@
+---
+title: "Update part"
+description: "Update the metadata and optionally replace the reference images of an existing part."
+---
+
+## `PUT /piezas/piezas/{clave}`
+
+Updates the metadata fields and optionally replaces one or more reference images of an existing part. Only image fields that are submitted are updated — omitting an image field leaves the existing image in place. Replaced images are deleted from Cloudinary asynchronously after the database is committed.
+
+<Note>
+  Rate limit: **20 requests per minute** per IP address.
+</Note>
+
+<Warning>
+  Replacing an image regenerates its AI embedding. All three image fields are processed in parallel. If any image fails validation, the entire request fails before the database is updated.
+</Warning>
+
+### Headers
+
+<ParamField header="x-planta" type="string" required>
+  Plant identifier that determines which database record is updated. Accepted values include `Planta 1`, `Planta 2`, `planta1`, `p1`, `norte`, and their aliases.
+</ParamField>
+
+### Path parameters
+
+<ParamField path="clave" type="string" required>
+  Unique identifier of the part to update.
+</ParamField>
+
+### Request body
+
+Submit as `multipart/form-data`.
+
+<ParamField body="nombre" type="string" required>
+  Updated display name for the part. Trimmed and truncated to 255 characters.
+</ParamField>
+
+<ParamField body="maquina_id" type="string" required>
+  Updated machine assignment. Must reference an existing machine `clave`.
+</ParamField>
+
+<ParamField body="ubicacion" type="string">
+  Updated physical location. Trimmed and truncated to 255 characters. Send an empty value to clear.
+</ParamField>
+
+<ParamField body="uso_en" type="string">
+  Updated use description. Trimmed and truncated to 255 characters. Send an empty value to clear.
+</ParamField>
+
+<ParamField body="proveedores" type="string">
+  Updated supplier information. Trimmed and truncated to 255 characters. Send an empty value to clear.
+</ParamField>
+
+<ParamField body="imagen" type="file">
+  Replacement for the primary reference image. Accepted formats: `image/jpeg`, `image/png`, `image/webp`, `image/heic`, `image/heif`. Maximum size: **5 MB**. Regenerates the primary embedding.
+</ParamField>
+
+<ParamField body="imagen_2" type="file">
+  Replacement for the second reference image. Same format and size constraints as `imagen`. Regenerates the secondary embedding.
+</ParamField>
+
+<ParamField body="imagen_3" type="file">
+  Replacement for the third reference image. Same format and size constraints as `imagen`. Regenerates the third embedding.
+</ParamField>
+
+### Response
+
+<ResponseField name="ok" type="boolean" required>
+  `true` on success.
+</ResponseField>
+
+<ResponseField name="msg" type="string" required>
+  Human-readable confirmation message.
+</ResponseField>
+
+<ResponseField name="clave" type="string" required>
+  The `clave` of the updated part.
+</ResponseField>
+
+### Example
+
+```bash
+curl -X PUT https://api.example.com/piezas/piezas/RDV-0042 \
+  -H "x-planta: Planta 1" \
+  -F "nombre=Rodamiento de bolas 6205 2RS" \
+  -F "maquina_id=TORNO-01" \
+  -F "proveedores=SKF, FAG, NSK" \
+  -F "imagen=@/path/to/nueva_imagen.jpg"
+```
+
+```json
+{
+  "ok": true,
+  "msg": "Pieza actualizada correctamente",
+  "clave": "RDV-0042"
+}
+```
+
+### Error codes
+
+| Code | Reason |
+|------|--------|
+| 400  | The uploaded image has an unsupported MIME type. |
+| 400  | The uploaded image exceeds the 5 MB size limit. |
+| 400  | The uploaded image is invalid or corrupted. |
+| 404  | No part with the given `clave` exists in this plant. |
+| 500  | AI model error during embedding generation. |
+| 500  | Database error — the transaction was rolled back. |
+| 504  | Cloudinary image upload timed out. |

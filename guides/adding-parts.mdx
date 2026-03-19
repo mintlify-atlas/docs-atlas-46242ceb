@@ -1,0 +1,143 @@
+---
+title: "Adding Parts"
+description: "Create machines and add industrial parts with automatic DINOv2 visual embeddings."
+---
+
+Parts (`piezas`) belong to machines (`maquinas`). The workflow is always:
+
+1. Create the machine first.
+2. Add parts to that machine using its `clave`.
+
+Embeddings are computed automatically when a part is saved — no separate indexing step is needed.
+
+---
+
+<Steps>
+  <Step title="Create a machine">
+    Every part must belong to a machine. Create one first with `POST /maquinas/`.
+
+    All requests require the `x-planta` header to route to the correct plant database.
+
+    ```bash
+    curl -X POST http://localhost:8000/maquinas/ \
+      -H "x-planta: planta 1" \
+      -F "clave=TORNO-001" \
+      -F "nombre=Torno CNC Principal" \
+      -F "descripcion=Torno de control numérico para piezas de precisión" \
+      -F "ubicacion=Nave A - Sector 3" \
+      -F "uso_en=Mecanizado" \
+      -F "proveedores=Mazak, Haas" \
+      -F "imagen=@/path/to/machine.jpg"
+    ```
+
+    **Machine fields:**
+
+    | Field | Required | Description |
+    |---|---|---|
+    | `clave` | Yes | Unique identifier (primary key) |
+    | `nombre` | Yes | Display name |
+    | `descripcion` | No | Long description |
+    | `ubicacion` | No | Physical location |
+    | `uso_en` | No | Usage area or process |
+    | `proveedores` | No | Supplier information |
+    | `imagen` | No | Machine photo (stored locally, not Cloudinary) |
+
+    **Success response:**
+
+    ```json
+    {
+      "ok": true,
+      "data": {
+        "clave": "TORNO-001",
+        "nombre": "Torno CNC Principal",
+        "descripcion": "Torno de control numérico para piezas de precisión",
+        "ubicacion": "Nave A - Sector 3",
+        "uso_en": "Mecanizado",
+        "proveedores": "Mazak, Haas",
+        "tiene_foto": true,
+        "imagen": "maquinas/TORNO-001.jpg"
+      }
+    }
+    ```
+  </Step>
+
+  <Step title="Add a part with one image">
+    Use `POST /piezas/agregar` to add a part. The primary image is required; DINOv2 automatically computes a 1536-dim embedding for it.
+
+    <Note>
+      This endpoint is rate-limited to **20 requests per minute** per IP address.
+    </Note>
+
+    ```bash
+    curl -X POST http://localhost:8000/piezas/agregar \
+      -H "x-planta: planta 1" \
+      -F "clave=RODAMIENTO-6205" \
+      -F "nombre=Rodamiento de Bolas 6205" \
+      -F "maquina_id=TORNO-001" \
+      -F "ubicacion=Eje principal" \
+      -F "uso_en=Soporte de carga radial" \
+      -F "proveedores=SKF, NSK" \
+      -F "imagen=@/path/to/part.jpg"
+    ```
+
+    **Success response:**
+
+    ```json
+    {
+      "ok": true,
+      "clave": "RODAMIENTO-6205",
+      "msg": "Pieza guardada exitosamente"
+    }
+    ```
+  </Step>
+
+  <Step title="Add a part with multiple images">
+    You can attach up to **3 images** per part using `imagen`, `imagen_2`, and `imagen_3`. Each image gets its own embedding stored in the database, improving visual search accuracy.
+
+    ```bash
+    curl -X POST http://localhost:8000/piezas/agregar \
+      -H "x-planta: planta 1" \
+      -F "clave=RODAMIENTO-6205" \
+      -F "nombre=Rodamiento de Bolas 6205" \
+      -F "maquina_id=TORNO-001" \
+      -F "ubicacion=Eje principal" \
+      -F "uso_en=Soporte de carga radial" \
+      -F "proveedores=SKF, NSK" \
+      -F "imagen=@/path/to/front.jpg" \
+      -F "imagen_2=@/path/to/side.jpg" \
+      -F "imagen_3=@/path/to/detail.jpg"
+    ```
+
+    **Part fields:**
+
+    | Field | Required | Description |
+    |---|---|---|
+    | `clave` | Yes | Unique identifier (primary key) |
+    | `nombre` | Yes | Display name |
+    | `maquina_id` | Yes | `clave` of the parent machine |
+    | `ubicacion` | No | Where the part is installed |
+    | `uso_en` | No | Functional use or process |
+    | `proveedores` | No | Supplier information |
+    | `imagen` | Yes | Primary image (embedding computed automatically) |
+    | `imagen_2` | No | Second image (optional, separate embedding) |
+    | `imagen_3` | No | Third image (optional, separate embedding) |
+
+    <Note>
+      **Deduplication:** If a part with the same `clave` already exists in the plant database, the API returns `400 Bad Request` with the message `"La pieza {clave} ya existe en esta planta"`. Claves are unique per plant.
+    </Note>
+  </Step>
+</Steps>
+
+---
+
+## Accepted image formats
+
+All image uploads (for both parts and machines) must be one of the following formats and under **5 MB**:
+
+- JPEG / JPG
+- PNG
+- WebP
+- HEIC
+- HEIF
+
+Part images are uploaded to **Cloudinary** and the returned secure URL is stored in the database. Machine images are saved to local storage (`storage/maquinas/`).

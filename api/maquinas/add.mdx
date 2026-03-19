@@ -1,0 +1,114 @@
+---
+title: "Add Machine"
+description: "Create a new machine (máquina) entry in the catalog, with an optional image upload."
+---
+
+## `POST /maquinas/`
+
+Creates a new machine record. The request must be sent as `multipart/form-data` to support the optional image upload. The image is validated as a real image file and stored locally at `storage/maquinas/{clave}.jpg`.
+
+<Note>
+  Machine images are stored on the **local filesystem** (`storage/maquinas/`), not Cloudinary. This differs from parts (piezas), which use cloud storage.
+</Note>
+
+### Headers
+
+<ParamField header="x-planta" type="string" required>
+  Plant identifier used to route the request to the correct database. Accepted values: `Planta 1`, `Planta 2` and their aliases `planta1`, `p1`, `norte`, `planta2`, `p2`, `sur`.
+</ParamField>
+
+### Body
+
+<ParamField body="clave" type="string" required>
+  Unique machine key (primary key). Must be at least 2 characters after trimming whitespace. Must not already exist in the database.
+</ParamField>
+
+<ParamField body="nombre" type="string" required>
+  Display name of the machine. Whitespace is trimmed before saving.
+</ParamField>
+
+<ParamField body="descripcion" type="string">
+  Free-text description of the machine.
+</ParamField>
+
+<ParamField body="ubicacion" type="string">
+  Physical location of the machine within the plant.
+</ParamField>
+
+<ParamField body="uso_en" type="string">
+  Area or process where the machine is used.
+</ParamField>
+
+<ParamField body="proveedores" type="string">
+  Supplier or vendor information for the machine.
+</ParamField>
+
+<ParamField body="imagen" type="file">
+  Optional image of the machine (`UploadFile`). The file is validated with `validar_archivo_real()` to confirm it is a genuine image. Saved as `storage/maquinas/{clave}.jpg`.
+</ParamField>
+
+### Response
+
+<ResponseField name="ok" type="boolean">
+  `true` on success.
+</ResponseField>
+
+<ResponseField name="data" type="object">
+  The newly created machine object.
+  <Expandable title="properties">
+    <ResponseField name="clave" type="string">Unique machine key (primary key).</ResponseField>
+    <ResponseField name="nombre" type="string">Machine display name.</ResponseField>
+    <ResponseField name="descripcion" type="string | null">Free-text description.</ResponseField>
+    <ResponseField name="ubicacion" type="string | null">Physical location.</ResponseField>
+    <ResponseField name="uso_en" type="string | null">Area or process of use.</ResponseField>
+    <ResponseField name="proveedores" type="string | null">Supplier information.</ResponseField>
+    <ResponseField name="tiene_foto" type="boolean">Whether the machine has an associated image.</ResponseField>
+    <ResponseField name="imagen" type="string | null">Relative path to the stored image, e.g. `maquinas/ABC-01.jpg`, or `null`.</ResponseField>
+    <ResponseField name="created_at" type="datetime">Timestamp when the record was created.</ResponseField>
+    <ResponseField name="updated_at" type="datetime | null">Timestamp of the last update, or `null`.</ResponseField>
+    <ResponseField name="updated_by" type="string | null">Identifier of the user who last updated the record.</ResponseField>
+    <ResponseField name="is_deleted" type="boolean">Soft-delete flag (default `false`).</ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Example
+
+```bash
+curl -X POST https://api.example.com/maquinas/ \
+  -H "x-planta: Planta 1" \
+  -F "clave=TORNO-01" \
+  -F "nombre=Torno CNC Principal" \
+  -F "descripcion=Torno de control numérico para piezas de precisión" \
+  -F "ubicacion=Nave A, Línea 3" \
+  -F "uso_en=Mecanizado" \
+  -F "proveedores=Mazak México" \
+  -F "imagen=@/ruta/a/imagen.jpg"
+```
+
+```json
+{
+  "ok": true,
+  "data": {
+    "clave": "TORNO-01",
+    "nombre": "Torno CNC Principal",
+    "descripcion": "Torno de control numérico para piezas de precisión",
+    "ubicacion": "Nave A, Línea 3",
+    "uso_en": "Mecanizado",
+    "proveedores": "Mazak México",
+    "tiene_foto": true,
+    "imagen": "maquinas/TORNO-01.jpg",
+    "created_at": "2026-03-19T10:00:00",
+    "updated_at": null,
+    "updated_by": null,
+    "is_deleted": false
+  }
+}
+```
+
+### Error codes
+
+| Code | Reason |
+|------|--------|
+| `400` | `clave` is shorter than 2 characters after trimming. |
+| `400` | The provided `clave` is already in use by another machine. |
+| `500` | Unexpected server error while saving the record. If an image was uploaded before the failure, it is automatically removed. |

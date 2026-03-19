@@ -1,0 +1,171 @@
+---
+title: "Managing Machines"
+description: "Create, list, update, and delete machines — the parent entity for all parts in the catalog."
+---
+
+Machines (`maquinas`) are the top-level organizational unit. Every part must belong to a machine. All machine endpoints require the `x-planta` header to target the correct plant database.
+
+Machine images are stored **locally** on disk (under `storage/maquinas/`) rather than Cloudinary, which is used only for part images.
+
+---
+
+<Steps>
+  <Step title="List all machines">
+    Retrieve every machine in a plant, ordered by `clave`.
+
+    <Accordion title="GET /maquinas/">
+      ```bash
+      curl -X GET http://localhost:8000/maquinas/ \
+        -H "x-planta: planta 1"
+      ```
+
+      **Response:**
+
+      ```json
+      {
+        "ok": true,
+        "data": [
+          {
+            "clave": "FRESADORA-002",
+            "nombre": "Fresadora Vertical CNC",
+            "descripcion": "Fresadora de 3 ejes para piezas complejas",
+            "ubicacion": "Nave B - Sector 1",
+            "uso_en": "Fresado",
+            "proveedores": "DMG Mori",
+            "tiene_foto": true,
+            "imagen": "/static/maquinas/FRESADORA-002.jpg"
+          },
+          {
+            "clave": "TORNO-001",
+            "nombre": "Torno CNC Principal",
+            "descripcion": "Torno de control numérico para piezas de precisión",
+            "ubicacion": "Nave A - Sector 3",
+            "uso_en": "Mecanizado",
+            "proveedores": "Mazak, Haas",
+            "tiene_foto": true,
+            "imagen": "/static/maquinas/TORNO-001.jpg"
+          }
+        ]
+      }
+      ```
+
+      The `imagen` field is returned as a `/static/` path when a photo exists, or `null` if no image was uploaded.
+    </Accordion>
+  </Step>
+
+  <Step title="Add a machine">
+    Create a new machine with `POST /maquinas/`. The `clave` must be at least 2 characters and unique within the plant.
+
+    <Accordion title="POST /maquinas/">
+      ```bash
+      curl -X POST http://localhost:8000/maquinas/ \
+        -H "x-planta: planta 1" \
+        -F "clave=FRESADORA-002" \
+        -F "nombre=Fresadora Vertical CNC" \
+        -F "descripcion=Fresadora de 3 ejes para piezas complejas" \
+        -F "ubicacion=Nave B - Sector 1" \
+        -F "uso_en=Fresado" \
+        -F "proveedores=DMG Mori" \
+        -F "imagen=@/path/to/machine.jpg"
+      ```
+
+      **Success response:**
+
+      ```json
+      {
+        "ok": true,
+        "data": {
+          "clave": "FRESADORA-002",
+          "nombre": "Fresadora Vertical CNC",
+          "descripcion": "Fresadora de 3 ejes para piezas complejas",
+          "ubicacion": "Nave B - Sector 1",
+          "uso_en": "Fresado",
+          "proveedores": "DMG Mori",
+          "tiene_foto": true,
+          "imagen": "maquinas/FRESADORA-002.jpg"
+        }
+      }
+      ```
+
+      If the `clave` is already in use, the API returns `400 Bad Request`.
+    </Accordion>
+  </Step>
+
+  <Step title="Update a machine">
+    Edit an existing machine's metadata or replace its image with `PUT /maquinas/{maquina_id}`.
+
+    <Accordion title="PUT /maquinas/{maquina_id}">
+      Only fields provided in the form data are updated. The `nombre` field is required.
+
+      ```bash
+      curl -X PUT http://localhost:8000/maquinas/FRESADORA-002 \
+        -H "x-planta: planta 1" \
+        -F "nombre=Fresadora Vertical CNC — Actualizada" \
+        -F "descripcion=Fresadora de 3 ejes, revisada 2026" \
+        -F "ubicacion=Nave B - Sector 2" \
+        -F "uso_en=Fresado de alta precisión" \
+        -F "proveedores=DMG Mori, Mazak"
+      ```
+
+      To replace the image, include the `imagen` file field:
+
+      ```bash
+      curl -X PUT http://localhost:8000/maquinas/FRESADORA-002 \
+        -H "x-planta: planta 1" \
+        -F "nombre=Fresadora Vertical CNC" \
+        -F "imagen=@/path/to/new_photo.jpg"
+      ```
+
+      **Success response:**
+
+      ```json
+      {
+        "ok": true,
+        "msg": "Actualizada correctamente"
+      }
+      ```
+
+      If the machine is not found, the API returns `404 Not Found`.
+    </Accordion>
+  </Step>
+
+  <Step title="Delete a machine">
+    Remove a machine permanently with `DELETE /maquinas/{maquina_id}`.
+
+    <Warning>
+      **You cannot delete a machine that has associated parts.** If any parts reference this machine, the API returns `409 Conflict` with the message `"No se puede eliminar: tiene piezas asociadas"`. Delete or reassign all parts first.
+    </Warning>
+
+    <Accordion title="DELETE /maquinas/{maquina_id}">
+      ```bash
+      curl -X DELETE http://localhost:8000/maquinas/FRESADORA-002 \
+        -H "x-planta: planta 1"
+      ```
+
+      **Success response:**
+
+      ```json
+      {
+        "ok": true,
+        "msg": "Máquina y archivos eliminados"
+      }
+      ```
+
+      On success, the machine record is removed from the database and any associated local image file is deleted from disk.
+    </Accordion>
+  </Step>
+</Steps>
+
+---
+
+## Machine fields reference
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `clave` | string | Yes (on create) | Primary key — minimum 2 characters, immutable after creation |
+| `nombre` | string | Yes | Display name |
+| `descripcion` | string | No | Long-form description |
+| `ubicacion` | string | No | Physical location in the facility |
+| `uso_en` | string | No | Process or area where the machine is used |
+| `proveedores` | string | No | Supplier or manufacturer information |
+| `imagen` | file | No | Stored locally at `storage/maquinas/{clave}.jpg` |

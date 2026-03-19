@@ -1,0 +1,69 @@
+---
+title: "Delete Machine"
+description: "Permanently delete a machine (máquina) and its associated image file from the catalog."
+---
+
+## `DELETE /maquinas/{maquina_id}`
+
+Deletes a machine record from the database and removes its physical image file from `storage/`. The image file is only deleted **after** the database transaction commits successfully.
+
+<Warning>
+  A machine **cannot be deleted if it has associated parts (piezas)**. The API returns `409 Conflict` in that case. You must reassign or delete all parts linked to the machine before removing it.
+</Warning>
+
+### Headers
+
+<ParamField header="x-planta" type="string" required>
+  Plant identifier used to route the request to the correct database. Accepted values: `Planta 1`, `Planta 2` and their aliases `planta1`, `p1`, `norte`, `planta2`, `p2`, `sur`.
+</ParamField>
+
+### Path Parameters
+
+<ParamField path="maquina_id" type="string" required>
+  The `clave` of the machine to delete.
+</ParamField>
+
+### Response
+
+<ResponseField name="ok" type="boolean">
+  `true` on success.
+</ResponseField>
+
+<ResponseField name="msg" type="string">
+  Confirmation message: `"Máquina y archivos eliminados"`.
+</ResponseField>
+
+### Example
+
+```bash
+curl -X DELETE https://api.example.com/maquinas/TORNO-01 \
+  -H "x-planta: Planta 1"
+```
+
+```json
+{
+  "ok": true,
+  "msg": "Máquina y archivos eliminados"
+}
+```
+
+#### Example — machine has associated parts (409)
+
+```bash
+curl -X DELETE https://api.example.com/maquinas/FRESA-02 \
+  -H "x-planta: Planta 1"
+```
+
+```json
+{
+  "detail": "No se puede eliminar: tiene piezas asociadas"
+}
+```
+
+### Error codes
+
+| Code | Reason |
+|------|--------|
+| `404` | No machine found with the given `maquina_id`. |
+| `409` | The machine has one or more associated parts (`piezas`). Delete or reassign all parts first. |
+| `500` | Unexpected server error during deletion. The database transaction is rolled back; the image file is **not** deleted if the DB commit failed. |

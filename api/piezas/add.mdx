@@ -1,0 +1,107 @@
+---
+title: "Add part"
+description: "Register a new part with up to three reference images. The primary image is required and generates a visual embedding for AI-powered search."
+---
+
+## `POST /piezas/agregar`
+
+Creates a new part record in the plant database. The primary image (`imagen`) is required and will be processed by the AI vision model to generate a searchable embedding. Up to two additional reference images can be included.
+
+<Note>
+  Rate limit: **20 requests per minute** per IP address.
+</Note>
+
+### Headers
+
+<ParamField header="x-planta" type="string" required>
+  Plant identifier that determines which database the part is saved to. Accepted values include `Planta 1`, `Planta 2`, `planta1`, `p1`, `norte`, and their aliases.
+</ParamField>
+
+### Request body
+
+Submit as `multipart/form-data`.
+
+<ParamField body="clave" type="string" required>
+  Unique identifier for the part within the plant. Must not already exist in the plant's database.
+</ParamField>
+
+<ParamField body="nombre" type="string" required>
+  Display name for the part. Trimmed and truncated to 255 characters.
+</ParamField>
+
+<ParamField body="maquina_id" type="string" required>
+  The `clave` of the machine this part belongs to. Must reference an existing machine record.
+</ParamField>
+
+<ParamField body="ubicacion" type="string">
+  Physical location of the part within the machine or facility. Trimmed and truncated to 255 characters.
+</ParamField>
+
+<ParamField body="uso_en" type="string">
+  Description of what the part is used for. Trimmed and truncated to 255 characters.
+</ParamField>
+
+<ParamField body="proveedores" type="string">
+  Supplier information for this part. Trimmed and truncated to 255 characters.
+</ParamField>
+
+<ParamField body="imagen" type="file" required>
+  Primary reference image. Accepted formats: `image/jpeg`, `image/png`, `image/webp`, `image/heic`, `image/heif`. Maximum size: **5 MB**. This image generates the primary search embedding.
+</ParamField>
+
+<ParamField body="imagen_2" type="file">
+  Second reference image. Same format and size constraints as `imagen`. Generates a secondary embedding for improved search accuracy.
+</ParamField>
+
+<ParamField body="imagen_3" type="file">
+  Third reference image. Same format and size constraints as `imagen`. Generates a third embedding for improved search accuracy.
+</ParamField>
+
+### Response
+
+<ResponseField name="ok" type="boolean" required>
+  `true` on success.
+</ResponseField>
+
+<ResponseField name="clave" type="string" required>
+  The `clave` of the newly created part.
+</ResponseField>
+
+<ResponseField name="msg" type="string" required>
+  Human-readable confirmation message.
+</ResponseField>
+
+### Example
+
+```bash
+curl -X POST https://api.example.com/piezas/agregar \
+  -H "x-planta: Planta 1" \
+  -F "clave=RDV-0042" \
+  -F "nombre=Rodamiento de bolas 6205" \
+  -F "maquina_id=TORNO-01" \
+  -F "ubicacion=Eje principal" \
+  -F "uso_en=Soporte de carga radial" \
+  -F "proveedores=SKF, FAG" \
+  -F "imagen=@/path/to/imagen.jpg" \
+  -F "imagen_2=@/path/to/imagen2.jpg"
+```
+
+```json
+{
+  "ok": true,
+  "clave": "RDV-0042",
+  "msg": "Pieza guardada exitosamente"
+}
+```
+
+### Error codes
+
+| Code | Reason |
+|------|--------|
+| 400  | A part with the given `clave` already exists in this plant. |
+| 400  | The uploaded image has an unsupported MIME type. |
+| 400  | The uploaded image exceeds the 5 MB size limit. |
+| 400  | The uploaded image is invalid or corrupted. |
+| 500  | AI model error during embedding generation. |
+| 500  | Database error — the transaction was rolled back. |
+| 504  | Cloudinary image upload timed out. |

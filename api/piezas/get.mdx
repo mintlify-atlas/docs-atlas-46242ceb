@@ -1,0 +1,120 @@
+---
+title: "Get part"
+description: "Retrieve the full record for a single part by its unique identifier."
+---
+
+## `GET /piezas/pieza/{clave}`
+
+Returns the complete database record for a single part. This includes all fields from the `Pieza` model, including audit timestamps.
+
+<Note>
+  Rate limit: **60 requests per minute** per IP address.
+</Note>
+
+<Warning>
+  The response includes all ORM-mapped fields. Vector embedding fields (`embedding`, `embedding_img2`, `embedding_img3`) may be present in the raw response depending on your serializer configuration.
+</Warning>
+
+### Headers
+
+<ParamField header="x-planta" type="string" required>
+  Plant identifier that determines which database is queried. Accepted values include `Planta 1`, `Planta 2`, `planta1`, `p1`, `norte`, and their aliases.
+</ParamField>
+
+### Path parameters
+
+<ParamField path="clave" type="string" required>
+  Unique identifier of the part to retrieve.
+</ParamField>
+
+### Response
+
+The full `Pieza` model object with the following fields:
+
+<ResponseField name="clave" type="string" required>
+  Unique part identifier (primary key).
+</ResponseField>
+
+<ResponseField name="nombre" type="string" required>
+  Part display name.
+</ResponseField>
+
+<ResponseField name="maquina_id" type="string" required>
+  Foreign key referencing the machine this part belongs to.
+</ResponseField>
+
+<ResponseField name="ubicacion" type="string">
+  Physical location of the part, or `null`.
+</ResponseField>
+
+<ResponseField name="uso_en" type="string">
+  Description of the part's use, or `null`.
+</ResponseField>
+
+<ResponseField name="proveedores" type="string">
+  Supplier information, or `null`.
+</ResponseField>
+
+<ResponseField name="tiene_foto" type="boolean" required>
+  `true` if at least one reference image is stored.
+</ResponseField>
+
+<ResponseField name="imagen" type="string">
+  URL of the primary reference image, or `null`.
+</ResponseField>
+
+<ResponseField name="imagen_2" type="string">
+  URL of the second reference image, or `null`.
+</ResponseField>
+
+<ResponseField name="imagen_3" type="string">
+  URL of the third reference image, or `null`.
+</ResponseField>
+
+<ResponseField name="created_at" type="string" required>
+  ISO 8601 timestamp of when the record was created.
+</ResponseField>
+
+<ResponseField name="updated_at" type="string">
+  ISO 8601 timestamp of the last update, or `null` if never updated.
+</ResponseField>
+
+<ResponseField name="updated_by" type="string">
+  Identifier of who last updated the record, or `null`.
+</ResponseField>
+
+<ResponseField name="is_deleted" type="boolean" required>
+  Soft-delete flag. `true` if the record has been marked as deleted.
+</ResponseField>
+
+### Example
+
+```bash
+curl -X GET https://api.example.com/piezas/pieza/RDV-0042 \
+  -H "x-planta: Planta 1"
+```
+
+```json
+{
+  "clave": "RDV-0042",
+  "nombre": "Rodamiento de bolas 6205",
+  "maquina_id": "TORNO-01",
+  "ubicacion": "Eje principal",
+  "uso_en": "Soporte de carga radial",
+  "proveedores": "SKF, FAG",
+  "tiene_foto": true,
+  "imagen": "https://res.cloudinary.com/example/image/upload/piezas/RDV-0042_imagen_1700000000000.jpg",
+  "imagen_2": null,
+  "imagen_3": null,
+  "created_at": "2024-11-15T10:30:00",
+  "updated_at": null,
+  "updated_by": null,
+  "is_deleted": false
+}
+```
+
+### Error codes
+
+| Code | Reason |
+|------|--------|
+| 404  | No part with the given `clave` exists in this plant. |

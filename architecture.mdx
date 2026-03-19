@@ -1,0 +1,187 @@
+---
+title: "Architecture"
+description: "How the DINOV2 Intelligent Parts Catalog routes requests, extracts embeddings, and executes vector searches."
+---
+
+This page describes the internal design of the system: how an HTTP request flows from the client through the routing layer, through the vision module, and into the database for vector search.
+
+## System overview
+
+| Layer | Module | Responsibility |
+|---|---|---|
+| HTTP server | `app.py` | FastAPI app, CORS middleware, rate limiter, router registration |
+| Request routing | `routes/piezas.py`, `routes/maquinas.py` | Endpoint definitions, input validation, file handling |
+| Plant routing | `deps.py`, `db.py` | `x-planta` header → correct database session |
+| Vision | `vision.py` | Image decoding, multi-scale transforms, DINOv2 inference, embedding normalization |
+| Storage | Cloudinary | Optimized JPEG storage for part images (800×800 max) |
+| Database | PostgreSQL + pgvector | Vector storage, L2 distance search, relational data |
+
+## Multi-database routing
+
+The service maintains a separate SQLAlchemy engine and session factory for each plant. This is configured in `db.py`.
+
+```python
+# db.py
+DB_URLS = {
+    "planta 1": os.getenv("DATABASE_URL_PLANTA1"),
+    "planta 2": os.getenv("DATABASE_URL_PLANTA2")
+}
+
+engines = {
+    planta: create_engine(url, pool_size=10, max_overflow=20, pool_pre_ping=True)
+    for planta, url in DB_URLS.items()
+}
+
+SessionFactories = {
+    name: sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    for name, engine in engines.items()
+}
+```
+
+The `get_session_factory(planta_nombre)` function normalizes aliases before lookup:
+
+```python
+def get_session_factory(planta_nombre: str):
+    key = planta_nombre.strip().lower()
+    if key in ("planta1", "p1", "norte", "1"): key = "planta 1"
+    if key in ("planta2", "p2", "sur", "2"):  key = "planta 2"
+    factory = SessionFactories.get(key)
+    if not factory:
+        raise ValueError(f"No existe configuración de base de datos para: {planta_nombre}")
+    return factory
+```
+
+The FastAPI dependency `get_db_from_header` in `deps.py` reads the `x-planta` header on every request, calls `get_session_factory`, opens a session, yields it to the endpoint, and closes it (returning the connection to the pool) in a `finally` block. No endpoint can access data without this dependency.
+
+<Note>
+Because each plant has its own connection pool (`pool_size=10`, `max_overflow=20`), a slow query on Plant 2 does not delay Plant 1 requests.
+</Note>
+
+## Data models
+
+Two primary tables drive the catalog.
+
+**`maquinas`** stores machine records. The `clave` column is the primary key and is used as the foreign key reference from parts.
+
+**`piezas`** stores part records and their visual embeddings. Up to three images and three corresponding 1536-dimensional vectors are stored per part:
+
+```python
+# models.py
+class Pieza(Base):
+    clave: Mapped[str]           # primary key
+    nombre: Mapped[str]
+    maquina_id: Mapped[str]      # FK → maquinas.clave
+    embedding:      Mapped[Vector] = mapped_column(Vector(1536))
+    embedding_img2: Mapped[Optional[Vector]] = mapped_column(Vector(1536), nullable=True)
+    embedding_img3: Mapped[Optional[Vector]] = mapped_column(Vector(1536), nullable=True)
+    imagen:   Mapped[Optional[str]]  # Cloudinary URL
+    imagen_2: Mapped[Optional[str]]
+    imagen_3: Mapped[Optional[str]]
+```
+
+Two audit tables are also present: `logs_busqueda` records every search result (top-1 match and distance), and `historial_cambios` tracks field-level edits to any entity.
+
+## Embedding pipeline
+
+All image processing and embedding extraction is handled in `vision.py`. The pipeline for a single image is:
+
+1. **Decode** — PIL opens the image bytes. HEIC/HEIF is supported via `pillow-heif`. EXIF orientation is corrected with `ImageOps.exif_transpose`.
+2. **Generate views** — Two views are created: the full image and a 75% center crop (when the shortest side is > 100 px). This captures both context and detail.
+3. **Multi-scale transform** — Both views are processed at two resolutions: 448 px and 560 px. Each is resized with BICUBIC interpolation and normalized with ImageNet statistics (`mean=[0.485, 0.456, 0.406]`, `std=[0.229, 0.224, 0.225]`).
+4. **DINOv2 inference** — Each (view × scale) tensor is forwarded through `dinov2_vitg14.forward_features()`. The output `cls_token` (global representation) and the mean of `patch_tokens` (spatial detail) are averaged: `combined = (cls_token + patch_tokens) / 2`.
+5. **Aggregate** — All four partial embeddings (2 views × 2 scales) are concatenated and their mean is taken, producing a single 1536-dimensional vector.
+6. **L2 normalize** — The final vector is divided by its L2 norm: `final_emb = final_emb / final_emb.norm(p=2)`.
+
+```python
+# vision.py
+SCALES = [448, 560]
+EMBEDDING_DIM = 1536
+
+@torch.no_grad()
+def extraer_embedding_pil(img_pil: Image.Image) -> np.ndarray:
+    vistas = [img_pil]
+    if min(img_pil.size) > 100:
+        vistas.append(center_crop_pil(img_pil, ratio=0.75))
+
+    embeddings_parciales = []
+    for scale in SCALES:
+        transform = get_transform(scale)
+        batch = torch.stack([transform(v) for v in vistas]).to(device).to(dtype)
+        out = model.forward_features(batch)
+        cls_token   = out["x_norm_clstoken"]
+        patch_tokens = out["x_norm_patchtokens"].mean(dim=1)
+        combined = (cls_token + patch_tokens) / 2
+        embeddings_parciales.append(combined.float().cpu())
+
+    all_embs = torch.cat(embeddings_parciales, dim=0)
+    final_emb = all_embs.mean(dim=0)
+    final_emb = final_emb / final_emb.norm(p=2)
+    return final_emb.numpy()
+```
+
+<Info>
+DINOv2 runs in `float16` on CUDA and `float32` on CPU. GPU memory is released with `torch.cuda.empty_cache()` after each inference. A warmup forward pass is run at startup to initialize CUDA buffers.
+</Info>
+
+## ROI (Region of Interest) support
+
+Callers can pass fractional bounding-box coordinates (`x_pct`, `y_pct`, `w_pct`, `h_pct`, all in the range 0.0–1.0) with a search request. When valid ROI coordinates are supplied, the system computes a **hybrid embedding**:
+
+```python
+# vision.py — procesar_imagen_y_embedding
+if usar_roi:
+    emb_roi    = extraer_embedding_pil(img_para_embedding)  # cropped region
+    emb_global = extraer_embedding_pil(img_pil)             # full image
+    emb = (0.6 * emb_roi) + (0.4 * emb_global)
+    emb = emb / np.linalg.norm(emb)   # re-normalize after weighted sum
+```
+
+The ROI crop receives 60% weight; the full image receives 40%. Re-normalization after the weighted sum is essential for correct L2 distance comparisons.
+
+<Warning>
+ROI crops smaller than 10×10 pixels are silently discarded and the full image embedding is used instead, to avoid noisy embeddings from near-empty crops.
+</Warning>
+
+## Hybrid vector search
+
+During search, the query embedding is compared against all three stored embeddings per part. The winning distance for each part is the **minimum** across available embeddings, computed in a single SQL expression using `func.least()` and `func.coalesce()`:
+
+```python
+# routes/piezas.py — _nucleo_busqueda
+dist_attr = func.least(
+    func.coalesce(models.Pieza.embedding.l2_distance(embedding),      999),
+    func.coalesce(models.Pieza.embedding_img2.l2_distance(embedding), 999),
+    func.coalesce(models.Pieza.embedding_img3.l2_distance(embedding), 999)
+).label("dist")
+
+stmt = (
+    select(models.Pieza, models.Maquina.nombre, dist_attr)
+    .join(models.Maquina, models.Pieza.maquina_id == models.Maquina.clave)
+    .order_by("dist")
+    .limit(limite)
+)
+```
+
+`func.coalesce(..., 999)` ensures that parts missing `embedding_img2` or `embedding_img3` do not produce `NULL` distances that would corrupt the sort order. The `limite` parameter is clamped to a maximum of 20 results per request.
+
+Search results are labelled with a confidence `nivel` derived from the raw distance:
+
+| `nivel` | Condition | Interpretation |
+|---|---|---|
+| `Alta` | distance < 0.35 | High confidence |
+| `Media` | 0.35 ≤ distance < 0.55 | Possible match |
+| `Baja` | distance ≥ 0.55 | Low confidence |
+
+## Rate limiting
+
+All endpoints are protected by `slowapi`. The limits are defined per route:
+
+| Endpoint | Limit |
+|---|---|
+| `POST /piezas/agregar` | 20 requests / minute |
+| `POST /piezas/buscar/global` | 30 requests / minute |
+| `POST /piezas/buscar/maquina` | 30 requests / minute |
+| `GET /piezas/maquina/{id}` | 60 requests / minute |
+| `DELETE /piezas/eliminar/{clave}` | 10 requests / minute |
+
+Exceeding a limit returns HTTP 429.

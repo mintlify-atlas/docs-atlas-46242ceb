@@ -1,0 +1,86 @@
+---
+title: "Update Machine"
+description: "Update the metadata and optionally replace the image of an existing machine (máquina)."
+---
+
+## `PUT /maquinas/{maquina_id}`
+
+Updates the fields of an existing machine identified by `maquina_id`. The request must be sent as `multipart/form-data`. If a new image is provided, it **replaces** the existing image file at `storage/maquinas/{maquina_id}.jpg`.
+
+<Note>
+  `clave` cannot be changed through this endpoint — it is used only as the path identifier. To change a machine's key, delete and recreate the record.
+</Note>
+
+### Headers
+
+<ParamField header="x-planta" type="string" required>
+  Plant identifier used to route the request to the correct database. Accepted values: `Planta 1`, `Planta 2` and their aliases `planta1`, `p1`, `norte`, `planta2`, `p2`, `sur`.
+</ParamField>
+
+### Path Parameters
+
+<ParamField path="maquina_id" type="string" required>
+  The `clave` of the machine to update.
+</ParamField>
+
+### Body
+
+<ParamField body="nombre" type="string" required>
+  Updated display name of the machine. Whitespace is trimmed before saving.
+</ParamField>
+
+<ParamField body="descripcion" type="string">
+  Updated free-text description. Pass an empty value to clear the field.
+</ParamField>
+
+<ParamField body="ubicacion" type="string">
+  Updated physical location within the plant.
+</ParamField>
+
+<ParamField body="uso_en" type="string">
+  Updated area or process where the machine is used.
+</ParamField>
+
+<ParamField body="proveedores" type="string">
+  Updated supplier or vendor information.
+</ParamField>
+
+<ParamField body="imagen" type="file">
+  Optional replacement image (`UploadFile`). When provided, the file is validated with `validar_archivo_real()` and overwrites the existing image at `storage/maquinas/{maquina_id}.jpg`. `tiene_foto` is set to `true`.
+</ParamField>
+
+### Response
+
+<ResponseField name="ok" type="boolean">
+  `true` on success.
+</ResponseField>
+
+<ResponseField name="msg" type="string">
+  Confirmation message: `"Actualizada correctamente"`.
+</ResponseField>
+
+### Example
+
+```bash
+curl -X PUT https://api.example.com/maquinas/TORNO-01 \
+  -H "x-planta: Planta 1" \
+  -F "nombre=Torno CNC Principal v2" \
+  -F "descripcion=Versión actualizada con mayor precisión" \
+  -F "ubicacion=Nave A, Línea 4" \
+  -F "uso_en=Mecanizado de alta precisión" \
+  -F "proveedores=Mazak México"
+```
+
+```json
+{
+  "ok": true,
+  "msg": "Actualizada correctamente"
+}
+```
+
+### Error codes
+
+| Code | Reason |
+|------|--------|
+| `404` | No machine found with the given `maquina_id`. |
+| `500` | Unexpected server error while saving changes. The database transaction is rolled back. |

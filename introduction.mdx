@@ -1,0 +1,50 @@
+---
+title: "Introduction"
+description: "Visual similarity search for industrial machine parts powered by DINOv2 ViT-G/14 and pgvector."
+---
+
+The DINOV2 Intelligent Parts Catalog is a FastAPI service that lets maintenance and procurement teams identify industrial parts by uploading a photo. The system extracts a 1536-dimensional visual embedding using Facebook's DINOv2 ViT-G/14 model, stores it in a PostgreSQL database with the pgvector extension, and returns the closest matching parts ranked by L2 distance.
+
+No text descriptions or part numbers are required for a search — a photograph is sufficient.
+
+## Resource types
+
+The API is organized around two resource types that mirror the physical structure of a plant floor.
+
+**Machines (`/maquinas`)** are the top-level grouping entity. Each machine has a unique `clave` (key), a human-readable name, optional location and supplier metadata, and an optional reference photo stored on disk. Machines are the parent record; all parts belong to exactly one machine.
+
+**Parts (`/piezas`)** are the searchable items. Each part holds up to three images and their corresponding embeddings (`embedding`, `embedding_img2`, `embedding_img3`). During a visual search the system computes the minimum L2 distance across all stored embeddings for each part, so a single part with multiple angles is correctly matched regardless of the angle used in the query.
+
+## Multi-plant architecture
+
+The service is designed to run across multiple isolated plant databases. Each incoming request must declare which plant it belongs to via the `x-planta` HTTP header. The dependency layer in `deps.py` reads this header, resolves the correct SQLAlchemy session factory from the `SessionFactories` registry in `db.py`, and injects a scoped database session into the endpoint.
+
+Currently two plants are supported:
+
+| Header value | Resolves to | Environment variable |
+|---|---|---|
+| `planta 1`, `planta1`, `p1`, `norte`, `1` | Plant 1 database | `DATABASE_URL_PLANTA1` |
+| `planta 2`, `planta2`, `p2`, `sur`, `2` | Plant 2 database | `DATABASE_URL_PLANTA2` |
+
+<Note>
+Every request to every endpoint — reads and writes alike — must include the `x-planta` header. Omitting it returns HTTP 400.
+</Note>
+
+Data for each plant is fully isolated: parts registered under Plant 1 are never visible to queries made under Plant 2, and vice versa.
+
+## Where to go next
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Install dependencies, configure environment variables, and make your first visual search in minutes.
+  </Card>
+  <Card title="Architecture" icon="sitemap" href="/architecture">
+    Understand the embedding pipeline, multi-database routing, hybrid search, and ROI support.
+  </Card>
+  <Card title="Machines API" icon="gear" href="/api/maquinas/add">
+    Create, list, update, and delete machines via the `/maquinas` endpoints.
+  </Card>
+  <Card title="Parts API" icon="puzzle" href="/api/piezas/add">
+    Add parts with images, run visual searches, and manage part records via the `/piezas` endpoints.
+  </Card>
+</CardGroup>

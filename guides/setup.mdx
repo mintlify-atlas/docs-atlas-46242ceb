@@ -1,0 +1,84 @@
+---
+title: "Setup & Deployment"
+description: "Deploy the DINOV2 Intelligent Parts Catalog API with FastAPI, PostgreSQL, and Cloudinary."
+---
+
+## Prerequisites
+
+Before you begin, make sure you have the following:
+
+- **Python 3.11+**
+- **PostgreSQL** with the [pgvector](https://github.com/pgvector/pgvector) extension installed
+- A **Cloudinary** account (free tier works for getting started)
+- ~3 GB of disk space for the DINOv2 model weights
+
+---
+
+<Steps>
+  <Step title="Clone the repository and install dependencies">
+    Clone the project and install all Python dependencies:
+
+    ```bash
+    git clone <your-repo-url>
+    cd <project-directory>
+    pip install -r requirements.txt
+    ```
+
+    The key packages installed include `fastapi`, `uvicorn`, `sqlalchemy`, `pgvector`, `torch`, `timm`, `cloudinary`, `pillow-heif`, and `slowapi`.
+  </Step>
+
+  <Step title="Configure environment variables">
+    Create a `.env` file in the project root with the following variables:
+
+    ```bash .env
+    # PostgreSQL connection strings (one per plant)
+    DATABASE_URL_PLANTA1=postgresql://user:password@host:5432/planta1_db
+    DATABASE_URL_PLANTA2=postgresql://user:password@host:5432/planta2_db
+
+    # Cloudinary credentials
+    CLOUDINARY_CLOUD_NAME=your_cloud_name
+    CLOUDINARY_API_KEY=your_api_key
+    CLOUDINARY_API_SECRET=your_api_secret
+    ```
+
+    <Note>
+      The API supports two plants out of the box (`planta 1` and `planta 2`). Each plant routes to its own isolated PostgreSQL database. Requests select the target plant via the `x-planta` header.
+    </Note>
+  </Step>
+
+  <Step title="Enable the pgvector extension in PostgreSQL">
+    Connect to each of your PostgreSQL databases and run:
+
+    ```sql
+    CREATE EXTENSION vector;
+    ```
+
+    This must be done on **both** databases (`planta1_db` and `planta2_db`). The extension is required to store and query the 1536-dimensional DINOv2 embeddings.
+  </Step>
+
+  <Step title="Start the server">
+    Launch the API with Uvicorn:
+
+    ```bash
+    uvicorn app:app --host 0.0.0.0 --port 8000
+    ```
+
+    <Note>
+      **First run:** On startup, `vision.py` loads the DINOv2 ViT-G/14 model (~3 GB) from `torch.hub`. This download only happens once and may take several minutes depending on your connection. Subsequent starts use the cached weights.
+    </Note>
+
+    <Tip>
+      **GPU acceleration:** CUDA is auto-detected. If a CUDA-capable GPU is available, the model runs in `float16` mode for significantly faster inference. CPU mode uses `float32` and is slower but fully supported.
+    </Tip>
+  </Step>
+
+  <Step title="Verify the deployment">
+    Open the interactive API documentation in your browser or run a health check with curl:
+
+    ```bash
+    curl http://localhost:8000/docs
+    ```
+
+    If the server is running correctly, you will receive an HTML response for the Swagger UI. Navigate to `http://localhost:8000/docs` in a browser to explore and test all available endpoints.
+  </Step>
+</Steps>

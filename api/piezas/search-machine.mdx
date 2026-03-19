@@ -1,0 +1,150 @@
+---
+title: "Visual search (by machine)"
+description: "Search for visually similar parts scoped to a specific machine in a plant by submitting a query image."
+---
+
+## `POST /piezas/buscar/maquina`
+
+Performs an AI-powered visual similarity search identical to the global search, but results are filtered to a single machine. Use this endpoint when you already know which machine the part belongs to, as it reduces false positives from visually similar parts on other machines.
+
+<Note>
+  Rate limit: **30 requests per minute** per IP address.
+</Note>
+
+<Tip>
+  Use the `x`, `y`, `w`, `h` fields to define a region of interest (ROI) within the query image. This focuses the embedding on a specific area and can improve search accuracy when the part occupies only a portion of the frame.
+</Tip>
+
+### Headers
+
+<ParamField header="x-planta" type="string" required>
+  Plant identifier that determines which database is searched. Accepted values include `Planta 1`, `Planta 2`, `planta1`, `p1`, `norte`, and their aliases.
+</ParamField>
+
+### Request body
+
+Submit as `multipart/form-data`.
+
+<ParamField body="maquina_id" type="string" required>
+  The `clave` of the machine to filter results by. Only parts assigned to this machine are considered.
+</ParamField>
+
+<ParamField body="imagen" type="file" required>
+  Query image to search against. Accepted formats: `image/jpeg`, `image/png`, `image/webp`, `image/heic`, `image/heif`. Maximum size: **5 MB**.
+</ParamField>
+
+<ParamField body="limite" type="integer" default="5">
+  Maximum number of results to return. Clamped to the range **1–20** server-side regardless of the value sent.
+</ParamField>
+
+<ParamField body="x" type="string">
+  Left edge of the region of interest as a fraction of image width (0.0–1.0).
+</ParamField>
+
+<ParamField body="y" type="string">
+  Top edge of the region of interest as a fraction of image height (0.0–1.0).
+</ParamField>
+
+<ParamField body="w" type="string">
+  Width of the region of interest as a fraction of image width (0.0–1.0, exclusive of 0).
+</ParamField>
+
+<ParamField body="h" type="string">
+  Height of the region of interest as a fraction of image height (0.0–1.0, exclusive of 0).
+</ParamField>
+
+### Response
+
+<ResponseField name="ok" type="boolean" required>
+  `true` on success.
+</ResponseField>
+
+<ResponseField name="data" type="array" required>
+  Ordered list of matching parts from the specified machine, from most to least similar.
+
+  <Expandable title="properties">
+    <ResponseField name="clave" type="string">
+      Unique part identifier.
+    </ResponseField>
+    <ResponseField name="nombre" type="string">
+      Part display name.
+    </ResponseField>
+    <ResponseField name="maquina" type="string">
+      Name of the machine this part belongs to.
+    </ResponseField>
+    <ResponseField name="imagen" type="string">
+      URL of the primary reference image, or `null` if none.
+    </ResponseField>
+    <ResponseField name="distancia" type="number">
+      L2 distance between the query embedding and the closest of the part's three embeddings. Lower values indicate higher visual similarity. Rounded to 4 decimal places.
+    </ResponseField>
+    <ResponseField name="nivel" type="string">
+      Confidence level derived from `distancia`: `"Alta"` (distance &lt; 0.35), `"Media"` (distance &lt; 0.55), or `"Baja"` (distance ≥ 0.55).
+    </ResponseField>
+    <ResponseField name="detalles" type="object">
+      Additional part metadata.
+
+      <Expandable title="properties">
+        <ResponseField name="ubicacion" type="string">
+          Physical location of the part.
+        </ResponseField>
+        <ResponseField name="uso_en" type="string">
+          Description of the part's use.
+        </ResponseField>
+        <ResponseField name="proveedores" type="string">
+          Supplier information.
+        </ResponseField>
+        <ResponseField name="tiene_foto" type="boolean">
+          `true` if at least one reference image is stored.
+        </ResponseField>
+        <ResponseField name="imagenes_extra" type="array">
+          Two-element array containing the URLs of `imagen_2` and `imagen_3` (each may be `null`).
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Example
+
+```bash
+curl -X POST https://api.example.com/piezas/buscar/maquina \
+  -H "x-planta: Planta 1" \
+  -F "maquina_id=TORNO-01" \
+  -F "imagen=@/path/to/foto.jpg" \
+  -F "limite=5"
+```
+
+```json
+{
+  "ok": true,
+  "data": [
+    {
+      "clave": "RDV-0042",
+      "nombre": "Rodamiento de bolas 6205",
+      "maquina": "Torno CNC T-01",
+      "imagen": "https://res.cloudinary.com/example/image/upload/piezas/RDV-0042_imagen_1700000000000.jpg",
+      "distancia": 0.1987,
+      "nivel": "Alta",
+      "detalles": {
+        "ubicacion": "Eje principal",
+        "uso_en": "Soporte de carga radial",
+        "proveedores": "SKF, FAG",
+        "tiene_foto": true,
+        "imagenes_extra": [null, null]
+      }
+    }
+  ]
+}
+```
+
+### Error codes
+
+| Code | Reason |
+|------|--------|
+| 400  | The uploaded image has an unsupported MIME type. |
+| 400  | The uploaded image exceeds the 5 MB size limit. |
+| 400  | The uploaded image is invalid or corrupted. |
+| 500  | AI model error during embedding generation. |
+| 500  | The generated search vector has incorrect dimensions. |
+| 504  | AI inference exceeded the 90-second timeout. |

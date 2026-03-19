@@ -1,0 +1,69 @@
+---
+title: "Delete part"
+description: "Permanently delete a part and its associated Cloudinary images after confirming the part identifier."
+---
+
+## `DELETE /piezas/eliminar/{clave}`
+
+Permanently deletes a part record from the database and removes its associated images from Cloudinary. You must confirm the deletion by providing the part's `clave` in the request body. The database record is deleted first; image deletion from Cloudinary follows synchronously.
+
+<Warning>
+  This action is irreversible. The part record and all its Cloudinary images will be permanently deleted. There is no soft-delete — `is_deleted` is not set; the row is removed.
+</Warning>
+
+<Note>
+  Rate limit: **10 requests per minute** per IP address.
+</Note>
+
+### Headers
+
+<ParamField header="x-planta" type="string" required>
+  Plant identifier that determines which database record is deleted. Accepted values include `Planta 1`, `Planta 2`, `planta1`, `p1`, `norte`, and their aliases.
+</ParamField>
+
+### Path parameters
+
+<ParamField path="clave" type="string" required>
+  Unique identifier of the part to delete.
+</ParamField>
+
+### Request body
+
+Submit as `multipart/form-data`.
+
+<ParamField body="confirmar_clave" type="string" required>
+  Must exactly match the `clave` path parameter. This confirmation step prevents accidental deletions.
+</ParamField>
+
+### Response
+
+<ResponseField name="ok" type="boolean" required>
+  `true` on success.
+</ResponseField>
+
+<ResponseField name="msg" type="string" required>
+  Human-readable confirmation message.
+</ResponseField>
+
+### Example
+
+```bash
+curl -X DELETE https://api.example.com/piezas/eliminar/RDV-0042 \
+  -H "x-planta: Planta 1" \
+  -F "confirmar_clave=RDV-0042"
+```
+
+```json
+{
+  "ok": true,
+  "msg": "Eliminada correctamente"
+}
+```
+
+### Error codes
+
+| Code | Reason |
+|------|--------|
+| 400  | `confirmar_clave` does not match the `clave` path parameter. |
+| 404  | No part with the given `clave` exists in this plant. |
+| 500  | Database error during deletion — the transaction was rolled back. |

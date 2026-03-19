@@ -1,0 +1,94 @@
+---
+title: "List parts by machine"
+description: "Retrieve all parts assigned to a specific machine, ordered alphabetically by name."
+---
+
+## `GET /piezas/maquina/{maquina_id}`
+
+Returns the full list of parts registered for a given machine. Results are ordered alphabetically by `nombre`. This endpoint does not perform visual search — it returns all parts regardless of similarity.
+
+<Note>
+  Rate limit: **60 requests per minute** per IP address.
+</Note>
+
+### Headers
+
+<ParamField header="x-planta" type="string" required>
+  Plant identifier that determines which database is queried. Accepted values include `Planta 1`, `Planta 2`, `planta1`, `p1`, `norte`, and their aliases.
+</ParamField>
+
+### Path parameters
+
+<ParamField path="maquina_id" type="string" required>
+  The `clave` of the machine whose parts you want to list.
+</ParamField>
+
+### Response
+
+<ResponseField name="ok" type="boolean" required>
+  `true` on success.
+</ResponseField>
+
+<ResponseField name="data" type="array" required>
+  List of parts assigned to the machine, sorted alphabetically by `nombre`. Returns an empty array if the machine has no parts.
+
+  <Expandable title="properties">
+    <ResponseField name="clave" type="string">
+      Unique part identifier.
+    </ResponseField>
+    <ResponseField name="nombre" type="string">
+      Part display name.
+    </ResponseField>
+    <ResponseField name="maquina_id" type="string">
+      The `clave` of the machine this part belongs to.
+    </ResponseField>
+    <ResponseField name="ubicacion" type="string">
+      Physical location of the part, or `null`.
+    </ResponseField>
+    <ResponseField name="uso_en" type="string">
+      Description of the part's use, or `null`.
+    </ResponseField>
+    <ResponseField name="proveedores" type="string">
+      Supplier information, or `null`.
+    </ResponseField>
+    <ResponseField name="tiene_foto" type="boolean">
+      `true` if at least one reference image is stored.
+    </ResponseField>
+    <ResponseField name="imagen" type="string">
+      URL of the primary reference image, or `null`.
+    </ResponseField>
+    <ResponseField name="imagen_2" type="string">
+      URL of the second reference image, or `null`.
+    </ResponseField>
+    <ResponseField name="imagen_3" type="string">
+      URL of the third reference image, or `null`.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Example
+
+```bash
+curl -X GET https://api.example.com/piezas/maquina/TORNO-01 \
+  -H "x-planta: Planta 1"
+```
+
+```json
+{
+  "ok": true,
+  "data": [
+    {
+      "clave": "RDV-0042",
+      "nombre": "Rodamiento de bolas 6205",
+      "maquina_id": "TORNO-01",
+      "ubicacion": "Eje principal",
+      "uso_en": "Soporte de carga radial",
+      "proveedores": "SKF, FAG",
+      "tiene_foto": true,
+      "imagen": "https://res.cloudinary.com/example/image/upload/piezas/RDV-0042_imagen_1700000000000.jpg",
+      "imagen_2": null,
+      "imagen_3": null
+    }
+  ]
+}
+```
