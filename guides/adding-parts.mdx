@@ -132,12 +132,14 @@ Embeddings are computed automatically when a part is saved — no separate index
 
 ## Accepted image formats
 
-All image uploads (for both parts and machines) must be one of the following formats and under **5 MB**:
+**Part images** (`/piezas/agregar`) are validated against a strict MIME allowlist and must be one of the following formats, under **5 MB**:
 
-- JPEG / JPG
-- PNG
-- WebP
-- HEIC
-- HEIF
+- JPEG / JPG (`image/jpeg`)
+- PNG (`image/png`)
+- WebP (`image/webp`)
+- HEIC (`image/heic`)
+- HEIF (`image/heif`)
+
+**Machine images** (`/maquinas/`) are validated by reading the actual file magic bytes via `python-magic`. Any valid `image/*` MIME type is accepted — the specific subtype is not restricted.
 
 Part images are uploaded to **Cloudinary** and the returned secure URL is stored in the database. Machine images are saved to local storage (`storage/maquinas/`).

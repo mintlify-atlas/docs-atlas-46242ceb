@@ -44,7 +44,7 @@ Creates a new machine record. The request must be sent as `multipart/form-data` 
 </ParamField>
 
 <ParamField body="imagen" type="file">
-  Optional image of the machine (`UploadFile`). The file is validated with `validar_archivo_real()` to confirm it is a genuine image. Saved as `storage/maquinas/{clave}.jpg`.
+  Optional image of the machine (`UploadFile`). The file is validated with `validar_archivo_real()` using magic-byte detection — any valid `image/*` MIME type is accepted. Saved as `storage/maquinas/{clave}.jpg`.
 </ParamField>
 
 ### Response

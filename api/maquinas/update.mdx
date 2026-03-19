@@ -46,7 +46,7 @@ Updates the fields of an existing machine identified by `maquina_id`. The reques
 </ParamField>
 
 <ParamField body="imagen" type="file">
-  Optional replacement image (`UploadFile`). When provided, the file is validated with `validar_archivo_real()` and overwrites the existing image at `storage/maquinas/{maquina_id}.jpg`. `tiene_foto` is set to `true`.
+  Optional replacement image (`UploadFile`). When provided, the file is validated with `validar_archivo_real()` using magic-byte detection (any valid `image/*` MIME type accepted) and overwrites the existing image at `storage/maquinas/{maquina_id}.jpg`. `tiene_foto` is set to `true`.
 </ParamField>
 
 ### Response

@@ -181,7 +181,9 @@ All endpoints are protected by `slowapi`. The limits are defined per route:
 | `POST /piezas/agregar` | 20 requests / minute |
 | `POST /piezas/buscar/global` | 30 requests / minute |
 | `POST /piezas/buscar/maquina` | 30 requests / minute |
-| `GET /piezas/maquina/{id}` | 60 requests / minute |
+| `GET /piezas/maquina/{maquina_id}` | 60 requests / minute |
+| `GET /piezas/pieza/{clave}` | 60 requests / minute |
+| `PUT /piezas/piezas/{clave}` | 20 requests / minute |
 | `DELETE /piezas/eliminar/{clave}` | 10 requests / minute |
 
-Exceeding a limit returns HTTP 429.
+Machine endpoints (`/maquinas/`) do not have explicit rate limits applied. Exceeding a limit returns HTTP 429.

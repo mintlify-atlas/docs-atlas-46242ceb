@@ -33,8 +33,8 @@ Each database engine is configured with the same pool parameters:
 Every request to the API **must** include the `x-planta` header. This header tells the dependency injection layer which database to connect to for that request.
 
 ```bash
-curl -X POST https://api.example.com/buscar/global \
-  -H "x-planta: planta1" \
+curl -X POST https://api.example.com/piezas/buscar/global \
+  -H "x-planta: planta 1" \
   -F "imagen=@part-photo.jpg" \
   -F "limite=5"
 ```
